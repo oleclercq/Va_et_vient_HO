@@ -3,18 +3,25 @@ il faut 2 inter sur la gare, (une gare suffit)
 */
 
 
+
+#define PWM_PIN (3) // D7
+#define DETEC_A (5) // D7
+#define DETEC_B (6) // D7
+#define DETEC_C (A2) // D7
+#define DETEC_D (A3) // D7
+
 #define DIRECTION_PIN (12)
 #define EACH_100MS (20)
 #define EACH_50MS (10)
 
-#define PWM_RECHERCHE (200)
-#define PWM_MIN (90)	// Vitesse Minimum, jusqu'a attendre la butée (inter)
+#define PWM_RECHERCHE (150)
+#define PWM_MIN (95)	// Vitesse Minimum, jusqu'a attendre la butée (inter)
 #define PWM_MAX (255)	// Vitesse MAX
 #define PWM_STOP (0)
 #define DUREE_EN_GARE	(100)	// 100 * 50ms = 5000ms = 5s;
 
 #define DUREE_VITESSE_MIN (100) // 50 passa ge cadencé ) 50ms  =50x50 = 2.5s
-#define DUREE_VITESSE_MAX (110) // 50 passa ge cadencé ) 50ms  =50x50 = 2.5s
+#define DUREE_VITESSE_MAX (120) // 50 passa ge cadencé ) 50ms  =50x50 = 2.5s
 
 #define NB_PASS_DETECT	(100) // temps avant de détecter la gare d'arrivée
 
@@ -38,21 +45,28 @@ volatile int gDuree = DUREE_EN_GARE;
 
 volatile int gInterA_old = -1;
 volatile int gInterB_old = -1;
+volatile int gInterC_old = -1;
+volatile int gInterD_old = -1;
 
 int gInter_A = -1;
 int gInter_B = -1;
+int gInter_C = -1;
+int gInter_D = -1;
 
 int gPosA_old = -1;
 int gPosB_old = -1;
+int gPosC_old = -1;
+int gPosD_old = -1;
 int gPosA = 0;
 int gPosB = 0;
+int gPosC = 0;
+int gPosD = 0;
 
 volatile int gVitesse = 0;
+void init_sensor();
 
 
-#define PWM_PIN (3) // D7
-#define DETEC_A (5) // D7
-#define DETEC_B (6) // D7
+
 
 /* ************************************************************************ */
 /* ************************************************************************ */
@@ -67,8 +81,11 @@ void setup ()
   analogWrite(PWM_PIN, 100);
 
 
+
   pinMode(DETEC_A, INPUT_PULLUP); 
-  pinMode(DETEC_B, INPUT_PULLUP); 
+  pinMode(DETEC_B, INPUT_PULLUP);
+  pinMode(DETEC_C, INPUT_PULLUP); 
+  pinMode(DETEC_D, INPUT_PULLUP); 
   Serial.begin(9600);
   Serial.print(__FILE__);
   Serial.print(" ");
@@ -97,6 +114,8 @@ void loop()
 {
   gInter_A = digitalRead(DETEC_A);
   gInter_B = digitalRead(DETEC_B);
+  gInter_C = digitalRead(DETEC_C);
+  gInter_D = digitalRead(DETEC_D);
 
   /*Serial.print("A=");
   Serial.println(gInter_A);
@@ -109,8 +128,8 @@ void loop()
     {
 		if (gPosA_old != gPosA)	{
 			Serial.println("***** A *****");
+			init_sensor();
 			gPosA_old = gPosA;
-			gPosB_old = -1 ;
 		}
 		
         if (gInterA_old != gInter_A) // pour l'anti rebond
@@ -128,7 +147,7 @@ void loop()
     {
 		if (gPosB_old != gPosB)	{
 			Serial.println("***** B *****");
-			gPosA_old = -1;
+			init_sensor();
 			gPosB_old = gPosB;
 		}
         if (gInterB_old != gInter_B) // pour l'anti rebond
@@ -138,9 +157,39 @@ void loop()
             gDuree = DUREE_EN_GARE; 
             gInterB_old = gInter_B;
 			gInterA_old = -10;
-            gEtat = GARE_B;
+			gEtat = GARE_B;
         }
     }
+	
+	
+	if (gInter_C == LOW)
+    {
+		if (gPosC_old != gPosC)	{
+			Serial.println("***** C *****");
+			init_sensor();
+			gPosC_old = gPosC;
+		}
+	}
+		
+	if (gInter_D == LOW)
+    {
+		if (gPosD_old != gPosD)	{
+			Serial.println("***** D *****");
+			init_sensor();
+			gPosD_old = gPosD;
+		}
+	}
+}
+
+/* ************************************************************************ */
+/* */
+/* ************************************************************************ */
+void init_sensor()
+{
+	gPosA_old = -1 ;
+	gPosB_old = -1 ;
+	gPosC_old = -1 ;
+	gPosD_old = -1 ;
 }
 
 /* ************************************************************************ */
@@ -205,8 +254,8 @@ void action()
 			
 					
 		}
-		Serial.print("RAPIDE:");
-		Serial.println(gDuree);
+		//Serial.print("RAPIDE:");
+		//Serial.println(gDuree);
 		if (gDuree-- <= 0 ) {
 			gEtat = DESCELERE;
 		}
@@ -221,8 +270,8 @@ void action()
 		}
 		
 		gVitesse -= 3;
-		Serial.print("DESCELERE:");
-		Serial.println(gVitesse);
+		//Serial.print("DESCELERE:");
+		//Serial.println(gVitesse);
 		analogWrite(PWM_PIN, gVitesse);
 		if (gVitesse <= PWM_MIN ) {
 			gEtat = RALENTI;
@@ -267,11 +316,13 @@ void enGare()
           if (gEtat == GARE_A){
             Serial.println("GARE_A*****");
             digitalWrite(DIRECTION_PIN, LOW); 
+			gDuree = 50;
           }
 
           if (gEtat == GARE_B){
             Serial.println("GARE_B****");
             digitalWrite(DIRECTION_PIN, HIGH); 
+			gDuree = 50;
           }
          gEtatOld = gEtat;
       }
