@@ -308,6 +308,7 @@ void action()
 /******************************************************/
 void enGare()
 {
+	static int gDureeSeconde=20;
   
       analogWrite(PWM_PIN, PWM_STOP);
       //    Premier traitement
@@ -316,19 +317,30 @@ void enGare()
           if (gEtat == GARE_A){
             Serial.println("GARE_A*****");
             digitalWrite(DIRECTION_PIN, LOW); 
-			gDuree = 50;
+			gDuree = 2;
           }
 
           if (gEtat == GARE_B){
             Serial.println("GARE_B****");
             digitalWrite(DIRECTION_PIN, HIGH); 
-			gDuree = 50;
+			gDuree = 3;
           }
          gEtatOld = gEtat;
       }
+	  // On affiche le décompteur en Gare.
+	  
+	if (gEtatOld != gEtat ) 
+    {
+	}
+		if (gDureeSeconde-- == 0){
+			Serial.println("EN GARE");
+			gDureeSeconde = 20 ;// 20 x 50ms = 1s
+			
+			if (gDuree-- <= 0 ) {
+				gEtat = ACCELERE;
+			}
+		}
 
 //    Dernier Traitement
-      if (gDuree-- <= 0 ) {
-        gEtat = ACCELERE;
-        }
+      
 }
