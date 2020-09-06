@@ -5,17 +5,18 @@ il faut 2 inter sur la gare, (une gare suffit)
 
 
 #define PWM_PIN (3) // D7
-#define DETEC_A (5) // D7
-#define DETEC_B (6) // D7
-#define DETEC_C (A2) // D7
-#define DETEC_D (A3) // D7
+#define CPT_A (5) // D7
+#define CPT_B (6) // D7
+#define CPT_C (A2) // D7
+#define CPT_D (A3) // D7
 
 #define DIRECTION_PIN (12)
 #define EACH_100MS (20)
 #define EACH_50MS (10)
 
 #define PWM_RECHERCHE (150)
-#define PWM_MIN (95)	// Vitesse Minimum, jusqu'a attendre la butée (inter)
+#define PWM_MIN_STOP (50) // PWM à la quelle le train n'avence pas
+#define PWM_MIN (120)	// Vitesse Minimum, jusqu'a attendre la butée (inter)
 #define PWM_MAX (255)	// Vitesse MAX
 #define PWM_STOP (0)
 #define DUREE_EN_GARE	(100)	// 100 * 50ms = 5000ms = 5s;
@@ -35,7 +36,7 @@ static int gDirection = 0;
 
 int pos = 0;    // variable to store the servo position
 
-typedef enum { GARE_A,GARE_B,ACCELERE,RAPIDE,DESCELERE,RALENTI,RECHERCHE} E_ETAT;
+typedef enum { DETECT_A,DETECT_B,DETEC_C,DETEC_D, GARE_A,GARE_B,ACCELERE,RAPIDE,DESCELERE,RALENTI,RECHERCHE} E_ETAT;
 volatile E_ETAT gEtat = RECHERCHE;
 volatile E_ETAT gEtatOld = RAPIDE;
 volatile int gSens = 0;
@@ -65,7 +66,8 @@ int gPosD = 0;
 volatile int gVitesse = 0;
 void init_sensor();
 
-
+// Prototypage.
+void desceleration_fin(E_ETAT);
 
 
 /* ************************************************************************ */
@@ -79,13 +81,14 @@ void setup ()
   pinMode(PWM_PIN, OUTPUT);
   digitalWrite(DIRECTION_PIN, HIGH); 
   analogWrite(PWM_PIN, 100);
+  Serial.print("gVitesse:"); Serial.println(gVitesse);
 
 
 
-  pinMode(DETEC_A, INPUT_PULLUP); 
-  pinMode(DETEC_B, INPUT_PULLUP);
-  pinMode(DETEC_C, INPUT_PULLUP); 
-  pinMode(DETEC_D, INPUT_PULLUP); 
+  pinMode(CPT_A, INPUT_PULLUP); 
+  pinMode(CPT_B, INPUT_PULLUP);
+  pinMode(CPT_C, INPUT_PULLUP); 
+  pinMode(CPT_D, INPUT_PULLUP); 
   Serial.begin(9600);
   Serial.print(__FILE__);
   Serial.print(" ");
@@ -112,10 +115,10 @@ sei(); // enable interrupts
 
 void loop()
 {
-  gInter_A = digitalRead(DETEC_A);
-  gInter_B = digitalRead(DETEC_B);
-  gInter_C = digitalRead(DETEC_C);
-  gInter_D = digitalRead(DETEC_D);
+  gInter_A = digitalRead(CPT_A);
+  gInter_B = digitalRead(CPT_B);
+  gInter_C = digitalRead(CPT_C);
+  gInter_D = digitalRead(CPT_D);
 
   /*Serial.print("A=");
   Serial.println(gInter_A);
@@ -139,7 +142,8 @@ void loop()
             gDuree = DUREE_EN_GARE; // 10 * 100ms = 1000ms;
             gInterA_old = gInter_A;
 			gInterB_old = -10;
-            gEtat = GARE_A;
+			if ( gEtat == RECHERCHE)
+			{gEtat = GARE_A;} else {gEtat = DETECT_A;}
         }
     }
     
@@ -157,7 +161,8 @@ void loop()
             gDuree = DUREE_EN_GARE; 
             gInterB_old = gInter_B;
 			gInterA_old = -10;
-			gEtat = GARE_B;
+			if ( gEtat == RECHERCHE)
+			{gEtat = GARE_B;} else {gEtat = DETECT_B;}
         }
     }
 	
@@ -215,10 +220,11 @@ void action()
 {
   switch(gEtat)
   {
+	case DETECT_A : desceleration_fin(GARE_A); break;
+	case DETECT_B : desceleration_fin(GARE_B); break;
+	  
     case GARE_A: 
-    case GARE_B: 
-      enGare();
-      break;
+    case GARE_B: 	enGare();	break;
       
     case ACCELERE: 
 
@@ -239,10 +245,12 @@ void action()
 	  
       analogWrite(PWM_PIN, gVitesse);
 	  gVitesse += 3;
+	  Serial.print("gVitesse:"); Serial.println(gVitesse);
       if (gVitesse >= PWM_MAX ) {
           gEtat = RAPIDE;
           gDuree = DUREE_VITESSE_MAX;
 		  gVitesse = PWM_MAX;
+		  Serial.print("gVitesse:"); Serial.println(gVitesse);
 		  analogWrite(PWM_PIN, PWM_MAX);
       }
       break;
@@ -272,6 +280,7 @@ void action()
 		gVitesse -= 3;
 		//Serial.print("DESCELERE:");
 		//Serial.println(gVitesse);
+		Serial.print("gVitesse:"); Serial.println(gVitesse);
 		analogWrite(PWM_PIN, gVitesse);
 		if (gVitesse <= PWM_MIN ) {
 			gEtat = RALENTI;
@@ -285,6 +294,7 @@ void action()
           Serial.println("RALENTI");
           gEtatOld = gEtat;
       }
+	  gVitesse = PWM_MIN;
       analogWrite(PWM_PIN, PWM_MIN);
       break;
       
@@ -294,8 +304,13 @@ void action()
 		{
 			Serial.println("RECHERCHE");
 			gEtatOld = gEtat;
-			analogWrite(PWM_PIN, PWM_RECHERCHE);
+			gVitesse = PWM_RECHERCHE;
+			Serial.print("gVitesse:"); Serial.println(gVitesse);
+			analogWrite(PWM_PIN, gVitesse);
 		}
+		
+		Serial.print("RECHERCHE:");
+		Serial.println(gVitesse);
       break;
       
     default: 
@@ -306,23 +321,45 @@ void action()
 
 
 /******************************************************/
+
+void desceleration_fin(E_ETAT next)
+{
+	// il faut faire une desceleration rapide
+		 if (gEtatOld != gEtat ) {
+			 Serial.println("Arrive en garre A");
+			 gEtatOld = gEtat;
+		 }
+		 gVitesse-=2;
+		 analogWrite(PWM_PIN, gVitesse);
+		 Serial.print("gVitesse:"); Serial.println(gVitesse);
+		 if ( gVitesse <= PWM_MIN_STOP)
+		 {
+			 analogWrite(PWM_PIN, PWM_STOP);
+			 gEtat = next;
+		 }
+}
+
+
+/******************************************************/
 void enGare()
 {
 	static int gDureeSeconde=20;
-  
-      analogWrite(PWM_PIN, PWM_STOP);
+		
+      
       //    Premier traitement
       if (gEtatOld != gEtat ) 
       {
+		  analogWrite(PWM_PIN, PWM_STOP);
           if (gEtat == GARE_A){
             Serial.println("GARE_A*****");
-            digitalWrite(DIRECTION_PIN, LOW); 
+            analogWrite(PWM_PIN, PWM_STOP);
+			digitalWrite(DIRECTION_PIN, LOW); 
 			gDuree = 2;
           }
 
           if (gEtat == GARE_B){
             Serial.println("GARE_B****");
-            digitalWrite(DIRECTION_PIN, HIGH); 
+			digitalWrite(DIRECTION_PIN, HIGH); 
 			gDuree = 3;
           }
          gEtatOld = gEtat;
