@@ -16,13 +16,13 @@ il faut 2 inter sur la gare, (une gare suffit)
 
 #define PWM_RECHERCHE (150)
 #define PWM_MIN_STOP (50) // PWM à la quelle le train n'avence pas
-#define PWM_MIN (150)	// Vitesse Minimum, jusqu'a attendre la butée (inter)
+#define PWM_MIN (100)	// Vitesse Minimum, jusqu'a attendre la butée (inter)
 #define PWM_MAX (255)	// Vitesse MAX
 #define PWM_STOP (0)
 #define DUREE_EN_GARE	(100)	// 100 * 50ms = 5000ms = 5s;
 
 #define DUREE_VITESSE_MIN (100) // 50 passa ge cadencé ) 50ms  =50x50 = 2.5s
-#define DUREE_VITESSE_MAX (120) // 50 passa ge cadencé ) 50ms  =50x50 = 2.5s
+#define DUREE_VITESSE_MAX (50) // 50 passa ge cadencé ) 50ms  =50x50 = 2.5s
 
 #define NB_PASS_DETECT	(100) // temps avant de détecter la gare d'arrivée
 
@@ -184,78 +184,6 @@ void loop()
 			gCptD_old = gCptD;
 		}
   }
-
-  /*Serial.print("A=");
-  Serial.println(gInter_A);
-  
-  Serial.print("B=");
-  Serial.println(gInter_B);*/
-
-/*
-    if (gInter_A==LOW)
-    {
-		init_sensor();
-		gCptA = TRUE;
-		if (gPosA_old != gPosA)	{
-			Serial.println("***** A *****");
-			init_sensor();
-			gPosA_old = gPosA;
-		}
-		
-        if (gInterA_old != gInter_A) // pour l'anti rebond
-        {
-            //analogWrite(PWM_PIN, PWM_STOP);
-            Serial.println("gInter_A=0*");
-            gDuree = DUREE_EN_GARE; // 10 * 100ms = 1000ms;
-            gInterA_old = gInter_A;
-			gInterB_old = -10;
-			if ( gEtat == RECHERCHE)
-			{gEtat = GARE_A;} else {gEtat = DETECT_A;}
-        }
-    }
-    
-    if (gInter_B==LOW) 
-    {
-		if (gPosB_old != gPosB)	{
-			Serial.println("***** B *****");
-			init_sensor();
-			gPosB_old = gPosB;
-		}
-        if (gInterB_old != gInter_B) // pour l'anti rebond
-        {
-          //analogWrite(PWM_PIN, PWM_STOP);
-          Serial.println("gInter_B=0*");
-            gDuree = DUREE_EN_GARE; 
-            gInterB_old = gInter_B;
-			gInterA_old = -10;
-			if ( gEtat == RECHERCHE)
-			{gEtat = GARE_B;} else {gEtat = DETECT_B;}
-        }
-    }
-	
-	
-	if (gInter_C == LOW)
-    {
-		if (gPosC_old != gPosC)	{
-			Serial.println("***** C *****");
-			init_sensor();
-			gPosC_old = gPosC;
-			if ( gEtat != RECHERCHE){
-				gDuree = DUREE_EN_GARE;
-				gEtat = DETECT_C;
-			}
-			
-		}
-	}
-		
-	if (gInter_D == LOW)
-    {
-		if (gPosD_old != gPosD)	{
-			Serial.println("***** D *****");
-			init_sensor();
-			gPosD_old = gPosD;
-		}
-	}*/
 }
 
 /* ************************************************************************ */
@@ -304,6 +232,7 @@ void train_acceleration(int taux)
 	Serial.println(gVitesse);
 	if (gVitesse >= PWM_MAX ) {
 		gEtatTrain = TRAIN_RAPIDE;
+		gDuree = DUREE_VITESSE_MAX;
 		gVitesse = PWM_MAX;
 		Serial.print("**");
 		analogWrite(PWM_PIN, gVitesse);
@@ -315,7 +244,8 @@ void train_acceleration(int taux)
 /* ************************************************************************ */
 void train_rapide()
 {
-	Serial.println("RAPIDE:");
+	Serial.print("RAPIDE:");
+	Serial.println(gDuree);
 	if (gDuree-- <= 0 ) {
 		gEtatTrain = TRAIN_RALENTIR;
 	}
@@ -357,7 +287,6 @@ void train_descelration_fin(int taux)
 {
 	gVitesse-=taux;
 	Serial.print("DECELERATION:");
-	Serial.println(gVitesse);
 	if ( gVitesse <= PWM_MIN_STOP)
 	{
 		gVitesse = PWM_STOP;
@@ -384,7 +313,7 @@ void train_arret(int duree)
 	if (gDuree-- == 0){
 		Serial.println("Depart");
 		gDureeSeconde = duree ;// 20 x 50ms = 1s
-		calcul_next_trajet();
+		//calcul_next_trajet();
 		digitalWrite(DIRECTION_PIN, !gSensDeMarche_AB);
 		gEtatTrain = TRAIN_ACCELERER;	
 	}
@@ -433,6 +362,7 @@ void action()
 		if (gTrajet == TRAJET_MA)
 		{
 			Serial.print("TRAJET_MA:");
+			calcul_next_trajet();
 			gEtatTrain = TRAIN_DECELRATION ;
 			gCptA = false;
 			gDuree = DUREE_EN_GARE;
@@ -442,6 +372,7 @@ void action()
 		if (gTrajet == TRAJET_MB)
 		{ 
 			Serial.print("TRAJET_MB:");
+			calcul_next_trajet();
 			gEtatTrain = TRAIN_DECELRATION ;	
 			gCptB = false;
 			gDuree = DUREE_EN_GARE;
@@ -451,6 +382,7 @@ void action()
 		if (gTrajet == TRAJET_AM)
 		{
 			Serial.print("TRAJET_AM:");
+			calcul_next_trajet();
 			gEtatTrain = TRAIN_DECELRATION ;
 			gCptC = false;
 			gDuree = DUREE_EN_GARE;
@@ -460,9 +392,11 @@ void action()
 		if (gTrajet == TRAJET_BM)
 		{ 
 			Serial.print("TRAJET_BM:");
+			calcul_next_trajet();
 			gEtatTrain = TRAIN_DECELRATION ;	
 			gCptD = false;
 			gDuree = DUREE_EN_GARE;
+			
 		}
 	}
 	
