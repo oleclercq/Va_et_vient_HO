@@ -36,25 +36,13 @@ static int gDirection = 0;
 
 int pos = 0;    // variable to store the servo position
 
-
-/*
-ACCELERATION
-RAPIDE
-RALENTI
-DECELRATION
-ARRET
-*/
-
-
 typedef enum { TRAIN_ACCELERER, TRAIN_RAPIDE, TRAIN_RALENTIR, TRAIN_LENT, TRAIN_DECELRATION, TRAIN_ARRET} E_ETAT_TRAIN;
 typedef enum { DETECT_A,DETECT_B,DETECT_C,DETECT_D, GARE_A, GARE_M, GARE_B, ACCELERE,RAPIDE,DESCELERE,RALENTI,RECHERCHE} E_ETAT;
-
-static bool gModeRecherche = true;
+typedef enum { RECERCHE_A,TRAJET_AM, TRAJET_MB, TRAJET_BM, TRAJET_MA } E_TRAJET;
 
 volatile E_ETAT_TRAIN gEtatTrain = TRAIN_ARRET;
 volatile E_ETAT_TRAIN gEtatTrainOld = TRAIN_RALENTIR;
-
-volatile int gSens = 0;
+volatile E_TRAJET gTrajet = RECERCHE_A;
 
 volatile int gnbPassage = 0;
 volatile int gDuree = DUREE_EN_GARE;
@@ -99,6 +87,8 @@ volatile int gVitesse = 0;
 //void desceleration_fin(E_ETAT, int);
 void init_sensor();
 void init_sensor_aff();
+
+
 void action(void);
 void train_acceleration(int taux);
 void train_rapide();
@@ -106,6 +96,7 @@ void train_ralentir(int taux);
 void train_lent();
 void train_descelration_fin(int taux);
 void train_arret(void);
+void calcul_next_trajet();
 
 
 /* ************************************************************************ */
@@ -309,9 +300,12 @@ void train_acceleration(int taux)
 {
 	gVitesse += taux;
 	analogWrite(PWM_PIN, gVitesse);
+	Serial.print("ACCELERATION:");
+	Serial.println(gVitesse);
 	if (gVitesse >= PWM_MAX ) {
 		gEtatTrain = TRAIN_RAPIDE;
 		gVitesse = PWM_MAX;
+		Serial.print("**");
 		analogWrite(PWM_PIN, gVitesse);
 	}
 }
@@ -321,6 +315,7 @@ void train_acceleration(int taux)
 /* ************************************************************************ */
 void train_rapide()
 {
+	Serial.println("RAPIDE:");
 	if (gDuree-- <= 0 ) {
 		gEtatTrain = TRAIN_RALENTIR;
 	}
@@ -333,6 +328,10 @@ void train_rapide()
 void train_ralentir(int taux)
 {
 	gVitesse -= taux;
+	
+	Serial.print("RALENTIR:");
+	Serial.println(gVitesse);
+	
 	if (gVitesse <= PWM_MIN ) {
 		gVitesse = PWM_MIN;
 		analogWrite(PWM_PIN, gVitesse);
@@ -357,12 +356,17 @@ void train_lent()
 void train_descelration_fin(int taux)
 {
 	gVitesse-=taux;
+	Serial.print("DECELERATION:");
+	Serial.println(gVitesse);
 	if ( gVitesse <= PWM_MIN_STOP)
 	{
 		gVitesse = PWM_STOP;
 		analogWrite(PWM_PIN, gVitesse);
+		gEtatTrain = TRAIN_ARRET;
+		Serial.println(gVitesse);
 	}else{
-		analogWrite(PWM_PIN, gVitesse);		
+		analogWrite(PWM_PIN, gVitesse);	
+		Serial.println(gVitesse);		
 	}
 }
 
@@ -371,13 +375,35 @@ void train_descelration_fin(int taux)
 /* ************************************************************************ */
 void train_arret(int duree)
 {
-	static int gDureeSeconde = duree;
+	static int gDureeSeconde = 20;
 	if (gDureeSeconde-- == 0){
-		Serial.println("EN GARE");
-		gDureeSeconde = duree ;// 20 x 50ms = 1s
-	
-		gEtatTrain = TRAIN_ACCELERER;
+			Serial.println("EN GARE");
+			gDureeSeconde = 20 ;// 20 x 50ms = 1s
 	}
+		
+	if (gDuree-- == 0){
+		Serial.println("Depart");
+		gDureeSeconde = duree ;// 20 x 50ms = 1s
+		calcul_next_trajet();
+		digitalWrite(DIRECTION_PIN, !gSensDeMarche_AB);
+		gEtatTrain = TRAIN_ACCELERER;	
+	}
+}
+
+/******************************************************/
+/* FONCTION APPELLEE TOUTES LES 50ms                  */
+
+void calcul_next_trajet()
+{
+		switch(gTrajet)
+		{
+			case TRAJET_AM: gTrajet = TRAJET_MB ; Serial.println("_MB");	gSensDeMarche_AB=true; break;
+			case TRAJET_MB: gTrajet = TRAJET_BM ; Serial.println("_BM");	gSensDeMarche_AB=false; break;
+			case TRAJET_BM: gTrajet = TRAJET_MA ; Serial.println("_MA");	gSensDeMarche_AB=false; break;
+			case TRAJET_MA: gTrajet = TRAJET_AM ; Serial.println("_AM");	gSensDeMarche_AB=true;  break;
+			default: Serial.println("ERROR 1"); break;
+		}
+		
 }
 
 /******************************************************/
@@ -387,16 +413,61 @@ void action()
 	
 	
 	
-	if ( gModeRecherche)
+	if ( gTrajet == RECERCHE_A)
 	{
 		if (gCptA){
 			Serial.println("EN GARE A INIT");
 			gVitesse = PWM_STOP;
 			analogWrite(PWM_PIN, gVitesse);
-			gModeRecherche = false;
+			
+			gTrajet = TRAJET_MA;
+			gEtatTrain = TRAIN_ARRET ;
+			
+			gSensDeMarche_AB = true;
+			
 		}
 		return;
 	}
+	
+	if (gCptA){
+		if (gTrajet == TRAJET_MA)
+		{
+			Serial.print("TRAJET_MA:");
+			gEtatTrain = TRAIN_DECELRATION ;
+			gCptA = false;
+			gDuree = DUREE_EN_GARE;
+		}
+	}
+	if (gCptB){
+		if (gTrajet == TRAJET_MB)
+		{ 
+			Serial.print("TRAJET_MB:");
+			gEtatTrain = TRAIN_DECELRATION ;	
+			gCptB = false;
+			gDuree = DUREE_EN_GARE;
+		}
+	}
+	if (gCptC){
+		if (gTrajet == TRAJET_AM)
+		{
+			Serial.print("TRAJET_AM:");
+			gEtatTrain = TRAIN_DECELRATION ;
+			gCptC = false;
+			gDuree = DUREE_EN_GARE;
+		}
+	}
+	if (gCptD){
+		if (gTrajet == TRAJET_BM)
+		{ 
+			Serial.print("TRAJET_BM:");
+			gEtatTrain = TRAIN_DECELRATION ;	
+			gCptD = false;
+			gDuree = DUREE_EN_GARE;
+		}
+	}
+	
+
+	
 	
 	switch(gEtatTrain){
 		case TRAIN_ACCELERER : 		train_acceleration(5);	break;
@@ -404,7 +475,7 @@ void action()
 		case TRAIN_RALENTIR :      	train_ralentir(5);		break;
 		case TRAIN_LENT :      		train_lent();			break;
 		case TRAIN_DECELRATION :  	train_descelration_fin(5);	break;
-		case TRAIN_ARRET :        	train_arret(20);			break;
+		case TRAIN_ARRET :        	train_arret(DUREE_EN_GARE); break;
 		
 		default :  
 			Serial.print("RAPIDE:"); 
