@@ -62,10 +62,10 @@ ST_TRAJET tabTrajet[NB_TRAJETS] = {	{"A -> M",  TAUX_ACCELERATION, PWM_MAX, DURE
 									{"B -> M",  TAUX_ACCELERATION, PWM_MAX, DUREE_VITESSE_MAX, TAUX_DESCELERATION, PWM_MIN, PWM_MIN_STOP},
 									{"M -> A",  TAUX_ACCELERATION, PWM_MAX, DUREE_VITESSE_MAX, TAUX_DESCELERATION, PWM_MIN, PWM_MIN_STOP}		// pro->offsetK ne doit pas d�passer ni egal � ENTREENUMERIQUE 19
 								} ; 
-ST_GARE tabGare[NB_GARE] = {	{"INCONNUE",  	DUREE_EN_GARE, DUREE_EN_GARE, true },
-								{"St Dizier",  	DUREE_EN_GARE, DUREE_EN_GARE, true },
-								{"Poste",  		DUREE_EN_GARE, DUREE_EN_GARE, true },
-								{"Ville Neuve", DUREE_EN_GARE, DUREE_EN_GARE, true },
+ST_GARE tabGare[NB_GARE] = {	{"INCONNUE",  	10, DUREE_EN_GARE, true },
+								{"St Dizier",  	5, DUREE_EN_GARE, true },
+								{"Poste",  		7, DUREE_EN_GARE, true },
+								{"Ville Neuve", 9, DUREE_EN_GARE, true },
 								} ; 
 								
 
@@ -359,20 +359,20 @@ void train_arret(int duree)
 	}
 	
 	if (sDureeSeconde-- == 0){
-			Serial.print(" ");
-			Serial.print(++sCmptSeconde);
-			sDureeSeconde = 20 ;// 20 x 50ms = 1s
-			
-	}
+		sDureeSeconde = 20 ;// 20 x 50ms = 1s
 		
-	if (tabGare[gGare].temps_gare_cpt-- == 0){
-		Serial.println("");
-		Serial.println("Depart");
-		tabGare[gGare].temps_gare_cpt = tabGare[gGare].temps_gare; // réinitialisation d la durée écoulée
-		calcul_next_trajet();
-		digitalWrite(DIRECTION_PIN, !gSensDeMarche_AB);
-		gEtatTrain = TRAIN_ACCELERER;
-		sCmptSeconde = 0;		
+		Serial.print(" ");
+		Serial.print(++sCmptSeconde);
+		
+		if (tabGare[gGare].temps_gare_cpt-- == 0){
+			Serial.println("");
+			Serial.println("Depart");
+			tabGare[gGare].temps_gare_cpt = tabGare[gGare].temps_gare; // réinitialisation d la durée écoulée
+			calcul_next_trajet();
+			digitalWrite(DIRECTION_PIN, !gSensDeMarche_AB);
+			gEtatTrain = TRAIN_ACCELERER;
+			sCmptSeconde = 0;		
+		}
 	}
 }
 
