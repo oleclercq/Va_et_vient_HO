@@ -14,9 +14,9 @@ il faut 2 inter sur la gare, (une gare suffit)
 #define EACH_100MS (20)
 #define EACH_50MS (10)
 
-#define PWM_RECHERCHE (160)
+#define PWM_RECHERCHE (255)
 #define PWM_MIN_STOP (50) // PWM à la quelle le train n'avence pas
-#define PWM_MIN (100)	// Vitesse Minimum, jusqu'a attendre la butée (inter)
+#define PWM_MIN (120)	// Vitesse Minimum, jusqu'a attendre la butée (inter)
 #define PWM_MAX (255)	// Vitesse MAX
 #define PWM_STOP (0)
 #define DUREE_EN_GARE	(100)	// 100 * 50ms = 5000ms = 5s;
@@ -31,12 +31,25 @@ il faut 2 inter sur la gare, (une gare suffit)
 #define NB_PASS_DETECT	(100) // temps avant de détecter la gare d'arrivée
 
 #define NB_TRAJETS	(4) 
-#define NB_GARE		(4)  // 0 n'est pas une gare
+#define NB_GARE		(3)  
+#define NB_CAPTEUR	(4)  
+
+#define GARE_ST_DIZIER  0
+#define GARE_POSTE 		1
+#define GARE_VILLENEUVE 2
+
+#define ILS_ST_DIZIER_A			0
+#define ILS_POST_B 				1
+#define ILS_VILLENEUVE_AVAL_C 	2
+#define ILS_VILLENEUVE_AMONT_D 	3
 
 
-#define GARE_ST_DIZIER  1
-#define GARE_POSTE 		2
-#define GARE_VILLENEUVE 3
+typedef struct 	{	char* name;			// nom du capteur
+					int   pin;
+					bool  capt; 		// Lecture brut de l'état du capteur
+					bool  captPassage;	// pour limiter l'affichage à une fois au passage. 
+					bool  captAck;		// Prise en compte de la position pour effectuer un changement d'état, afin que l'état soit pris qu'une fois en compte et eviter la boucle sans fin si la loco s'arrete sur le capteur. (posssible si vitesse lente)
+				} ST_CAPTEUR;
 
 
 typedef struct 	{	char*	 name_Gare; 		//
@@ -45,11 +58,6 @@ typedef struct 	{	char*	 name_Gare; 		//
 					bool 	 firstAff;
 				} ST_GARE;
 
-ST_GARE tabGare[NB_GARE] = {	{"INCONNUE",  	10, 10, true },
-								{"St Dizier",  	5, 5, true },
-								{"Poste",  		7, 7, true },
-								{"Ville-Neuve", 9, 9, true },
-								} ;
 
 // ous les temps sont exprimé en multiple de 50ms.
 typedef struct 	{	char*	 name_Trajet; 		//
@@ -65,6 +73,16 @@ typedef struct 	{	char*	 name_Trajet; 		//
 					bool     sens;
 				} ST_TRAJET; 
 				
+ST_CAPTEUR tabCapt[NB_CAPTEUR] =  { {	"ILS_ST_DIZIER", 		CPT_A, false, false, false },
+									{	"ILS_POST", 			CPT_B, false, false, false },
+									{	"ILS_VILLENEUVE_AVAL",	CPT_C, false, false, false },
+									{	"ILS_VILLENEUVE_AMONT",	CPT_D, false, false, false },
+									} ;
+								
+ST_GARE tabGare[NB_GARE] = {	{"St Dizier",  	5, 5, true },
+								{"Poste",  		7, 7, true },
+								{"Ville-Neuve", 9, 9, true },
+								} ;
  				
 
 				
@@ -109,16 +127,6 @@ volatile bool gCptB_old = false;
 volatile bool gCptC_old = false;
 volatile bool gCptD_old = false;
 
-
-int gInter_A = -1;
-int gInter_B = -1;
-int gInter_C = -1;
-int gInter_D = -1;
-
-int gPosA_old = -1;
-int gPosB_old = -1;
-int gPosC_old = -1;
-int gPosD_old = -1;
 int gPosA = 0;
 int gPosB = 0;
 int gPosC = 0;
@@ -134,6 +142,7 @@ volatile int gVitesse = 0;
 //void desceleration_fin(E_ETAT, int);
 void init_sensor();
 void init_sensor_aff();
+void init_sensor_ack();
 void initAllAffGare(void);
 
 void action(void);
@@ -150,25 +159,29 @@ void calcul_next_trajet();
 /* ************************************************************************ */
 void setup ()
 {
-
+  Serial.begin(9600);
+  //Serial.print(__FILE__);
+  //Serial.print(" ");
+  Serial.print(__DATE__);
+  Serial.print(" ");
+  Serial.println(__TIME__);
+  delay(1000);
+  
   //myservo.attach(4);  // attaches the servo on pin 9 to the servo object
   pinMode(LED_BUILTIN, OUTPUT);
   pinMode(DIRECTION_PIN, OUTPUT);
   pinMode(PWM_PIN, OUTPUT);
   digitalWrite(DIRECTION_PIN, HIGH);
   analogWrite(PWM_PIN, PWM_RECHERCHE);
-
-
-  pinMode(CPT_A, INPUT_PULLUP); 
+	for (int i=0 ; i<NB_CAPTEUR ; i++) {
+		pinMode(tabCapt[i].pin, INPUT_PULLUP); 	
+	}
+  
   pinMode(CPT_B, INPUT_PULLUP);
   pinMode(CPT_C, INPUT_PULLUP); 
   pinMode(CPT_D, INPUT_PULLUP); 
-  Serial.begin(9600);
-  Serial.print(__FILE__);
-  Serial.print(" ");
-  Serial.print(__DATE__);
-  Serial.print(" ");
-  Serial.println(__TIME__);
+  
+
 
    
 
@@ -191,45 +204,22 @@ sei(); // enable interrupts
 /* ************************************************************************ */
 void loop()
 {
-  
-  if (!digitalRead(CPT_A)) 	{
-		init_sensor();
-		gCptA = true;
-		if (gCptA_old != gCptA)	{
-			Serial.println("***** A *****");
-			init_sensor_aff();
-			gCptA_old = gCptA;
+	
+	// on surveilles capteurs en permanance..
+	for (int i=0 ; i<NB_CAPTEUR ; i++) 
+	{
+		//Serial.println(tabCapt[i].name);
+		if (!digitalRead(tabCapt[i].pin)) 	
+		{
+			init_sensor();
+			tabCapt[i].capt = true;
+			if (!tabCapt[i].captPassage)	{
+				Serial.println(tabCapt[i].name);
+				init_sensor_aff();
+				tabCapt[i].captPassage = true ;
+			}
 		}
-  }
-  
-  if (!digitalRead(CPT_B)) 	{
-		init_sensor();
-		gCptB = true;
-		if (gCptB_old != gCptB)	{
-			Serial.println("***** B *****");
-			init_sensor_aff();
-			gCptB_old = gCptB;
-		}
-  }
-  if (!digitalRead(CPT_C)) 	{
-		init_sensor();
-		gCptC = true;
-		if (gCptC_old != gCptC)	{
-			Serial.println("***** C *****");
-			init_sensor_aff();
-			gCptC_old = gCptC;
-		}
-  }
-  
-  if (!digitalRead(CPT_D)) 	{
-		init_sensor();
-		gCptD = true;
-		if (gCptD_old != gCptD)	{
-			Serial.println("***** D *****");
-			init_sensor_aff();
-			gCptD_old = gCptD;
-		}
-  }
+	}
 }
 
 /* ************************************************************************ */
@@ -237,17 +227,29 @@ void loop()
 /* ************************************************************************ */
 void init_sensor()
 {
-	gCptA = false ;
-	gCptB = false ;
-	gCptC = false ;
-	gCptD = false ;
+	for (int i=0 ; i<NB_CAPTEUR ; i++) {
+		tabCapt[i].capt = false ;	
+	}
 }
+
+/* ************************************************************************ */
+/* */
+/* ************************************************************************ */
 void init_sensor_aff()
 {	
-	gCptA_old = false ;
-	gCptB_old = false ;
-	gCptC_old = false ;
-	gCptD_old = false ;
+	for (int i=0 ; i<NB_CAPTEUR ; i++) {
+		tabCapt[i].captPassage = false ;	
+	}
+}
+
+/* ************************************************************************ */
+/* */
+/* ************************************************************************ */
+void init_sensor_ack()
+{	
+	for (int i=0 ; i<NB_CAPTEUR ; i++) {
+		tabCapt[i].captAck = false ;	
+	}
 }
 
 /* ************************************************************************ */
@@ -432,68 +434,82 @@ void calcul_next_trajet()
 /* FONCTION APPELLEE TOUTES LES 50ms                  */
 void action()
 {
-	
+	static bool gCptB_acquit = false ;
 	
 	
 	if ( gTrajet == RECERCHE_A)
 	{
-		if (gCptA){
-			//Serial.println("EN GARE A INIT");
+		if (tabCapt[ILS_ST_DIZIER_A].capt){
+			Serial.println("EN GARE A INIT");
 			gVitesse = PWM_STOP;
 			analogWrite(PWM_PIN, gVitesse);
-			gTrajet = TRAJET_MA;
 			gEtatTrain = TRAIN_ARRET ;
+			gTrajet = TRAJET_MA ; // façon de faire pour ne plus jammais retomber dans la fonction recherche
 		}
 		return;
 	}
 	
-	if (gCptA){
-		if (gTrajet == TRAJET_MA)
+	if (gTrajet == TRAJET_MA)
+	{
+		if (tabCapt[ILS_ST_DIZIER_A].capt)
 		{
-			//Serial.print("TRAJET_MA:");
-			gEtatTrain = TRAIN_DECELRATION ;
-			Serial.println("A_TRAIN_DECELRATION");
-			gCptA = false;
-			gGare = GARE_ST_DIZIER;
+			if (tabCapt[ILS_ST_DIZIER_A].captAck != tabCapt[ILS_ST_DIZIER_A].capt)
+			{
+				gEtatTrain = TRAIN_DECELRATION ;
+				Serial.println("A_TRAIN_DECELRATION");
+				gGare = GARE_ST_DIZIER;
+				
+				init_sensor_ack();
+				tabCapt[ILS_ST_DIZIER_A].captAck = true;
+			}
 		}
 	}
-	if (gCptB){
-		if (gTrajet == TRAJET_MB)
-		{ 
-			//Serial.print("TRAJET_MB:");
-			//calcul_next_trajet();
-			gEtatTrain = TRAIN_DECELRATION ;	
-			Serial.println("B_TRAIN_DECELRATION");
-			gCptB = false;
-			gGare = GARE_POSTE;
-		}
-	}
-	if (gCptC){
-		if (gTrajet == TRAJET_AM)
+	if (gTrajet == TRAJET_MB)
+	{ 
+		if (tabCapt[ILS_POST_B].capt )
 		{
-			//Serial.print("TRAJET_AM:");
-			//calcul_next_trajet();
-			gEtatTrain = TRAIN_DECELRATION ;
-			Serial.println("C_TRAIN_DECELRATION");
-			gCptC = false;
-			gGare = GARE_VILLENEUVE;
+			if (tabCapt[ILS_POST_B].captAck != tabCapt[ILS_POST_B].capt)
+			{
+				gEtatTrain = TRAIN_DECELRATION ;	
+				Serial.println("B_TRAIN_DECELRATION");
+				gGare = GARE_POSTE;
+				
+				init_sensor_ack();
+				tabCapt[ILS_POST_B].captAck = true;
+			}
 		}
 	}
-	if (gCptD){
-		if (gTrajet == TRAJET_BM)
-		{ 
-			//Serial.print("TRAJET_BM:");
-			//calcul_next_trajet();
-			gEtatTrain = TRAIN_DECELRATION ;
-			Serial.println("D_TRAIN_DECELRATION");
-			gCptD = false;
-			gGare = GARE_VILLENEUVE;
+	
+	if (gTrajet == TRAJET_AM)
+	{
+		if (tabCapt[ILS_VILLENEUVE_AVAL_C].capt)
+		{
+			if (tabCapt[ILS_VILLENEUVE_AVAL_C].captAck != tabCapt[ILS_VILLENEUVE_AVAL_C].capt)
+			{
+				gEtatTrain = TRAIN_DECELRATION ;
+				Serial.println("C_TRAIN_DECELRATION");
+				gGare = GARE_VILLENEUVE;
 			
+				init_sensor_ack();
+				tabCapt[ILS_VILLENEUVE_AVAL_C].captAck = true;
+			}
 		}
 	}
-	
-
-	
+	if (gTrajet == TRAJET_BM)
+	{ 
+		if (tabCapt[ILS_VILLENEUVE_AMONT_D].capt)
+		{
+			if (tabCapt[ILS_VILLENEUVE_AMONT_D].captAck != tabCapt[ILS_VILLENEUVE_AMONT_D].capt)
+			{
+				gEtatTrain = TRAIN_DECELRATION ;
+				Serial.println("D_TRAIN_DECELRATION");
+				gGare = GARE_VILLENEUVE;
+			
+				init_sensor_ack();
+				tabCapt[ILS_VILLENEUVE_AMONT_D].captAck = true;
+			}
+		}
+	}
 	
 	switch(gEtatTrain){
 		case TRAIN_ACCELERER : 		train_acceleration(5);	break;
