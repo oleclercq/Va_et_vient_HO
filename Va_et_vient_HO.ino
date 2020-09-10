@@ -44,20 +44,19 @@ il faut 2 inter sur la gare, (une gare suffit)
 #define ILS_VILLENEUVE_AMONT_D 	3
 
 
-typedef struct 	{	char* name;			// nom du capteur
-					int   pin;
-					bool  capt; 		// Lecture brut de l'état du capteur
-					bool  captPassage;	// pour limiter l'affichage à une fois au passage. 
-					bool  captAck;		// Prise en compte de la position pour effectuer un changement d'état, afin que l'état soit pris qu'une fois en compte et eviter la boucle sans fin si la loco s'arrete sur le capteur. (posssible si vitesse lente)
-				} ST_CAPTEUR;
-
-
 typedef struct 	{	char*	 name_Gare; 		//
 					int16_t  temps_gare;			// temps d'attente en gare. 
 					int16_t  temps_gare_cpt;
 					bool 	 firstAff;
 				} ST_GARE;
 
+typedef struct 	{	char* name;			// nom du capteur
+					ST_GARE* gare;
+					int   pin;
+					bool  capt; 		// Lecture brut de l'état du capteur
+					bool  captPassage;	// pour limiter l'affichage à une fois au passage. 
+					bool  captAck;		// Prise en compte de la position pour effectuer un changement d'état, afin que l'état soit pris qu'une fois en compte et eviter la boucle sans fin si la loco s'arrete sur le capteur. (posssible si vitesse lente)
+				} ST_CAPTEUR;
 
 // ous les temps sont exprimé en multiple de 50ms.
 typedef struct 	{	char*	 name_Trajet; 		//
@@ -73,11 +72,6 @@ typedef struct 	{	char*	 name_Trajet; 		//
 					bool     sens;
 				} ST_TRAJET; 
 				
-ST_CAPTEUR tabCapt[NB_CAPTEUR] =  { {	"ILS_ST_DIZIER", 		CPT_A, false, false, false },
-									{	"ILS_POST", 			CPT_B, false, false, false },
-									{	"ILS_VILLENEUVE_AVAL",	CPT_C, false, false, false },
-									{	"ILS_VILLENEUVE_AMONT",	CPT_D, false, false, false },
-									} ;
 								
 ST_GARE tabGare[NB_GARE] = {	{"St Dizier",  	5, 5, true },
 								{"Poste",  		7, 7, true },
@@ -93,6 +87,11 @@ ST_TRAJET tabTrajet[NB_TRAJETS] = {
 									{"M -> A",  &tabGare[GARE_VILLENEUVE], 	&tabGare[GARE_ST_DIZIER], 	TAUX_ACCELERATION, PWM_MAX, DUREE_VITESSE_MAX, TAUX_DESCELERATION, PWM_MIN, TAUX_STOP, PWM_MIN_STOP, true}		// pro->offsetK ne doit pas d�passer ni egal � ENTREENUMERIQUE 19
 								} ; 
 
+ST_CAPTEUR tabCapt[NB_CAPTEUR] =  { {	"ILS_ST_DIZIER", 		&tabGare[GARE_ST_DIZIER], 	CPT_A, false, false, false },
+									{	"ILS_POST", 			&tabGare[GARE_POSTE],		CPT_B, false, false, false },
+									{	"ILS_VILLENEUVE_AVAL",	&tabGare[GARE_VILLENEUVE], 	CPT_C, false, false, false },
+									{	"ILS_VILLENEUVE_AMONT",	&tabGare[GARE_VILLENEUVE], 	CPT_D, false, false, false },
+									} ;
 								
 static int gGare = 0;
 
@@ -448,67 +447,21 @@ void action()
 		}
 		return;
 	}
+
 	
-	if (gTrajet == TRAJET_MA)
-	{
-		if (tabCapt[ILS_ST_DIZIER_A].capt)
-		{
-			if (tabCapt[ILS_ST_DIZIER_A].captAck != tabCapt[ILS_ST_DIZIER_A].capt)
-			{
-				gEtatTrain = TRAIN_DECELRATION ;
-				Serial.println("A_TRAIN_DECELRATION");
-				gGare = GARE_ST_DIZIER;
-				
-				init_sensor_ack();
-				tabCapt[ILS_ST_DIZIER_A].captAck = true;
-			}
-		}
+	if (gTrajet == TRAJET_MA)	{ 
+		detectForDescelerationStop(ILS_ST_DIZIER_A,GARE_ST_DIZIER);
 	}
-	if (gTrajet == TRAJET_MB)
-	{ 
-		if (tabCapt[ILS_POST_B].capt )
-		{
-			if (tabCapt[ILS_POST_B].captAck != tabCapt[ILS_POST_B].capt)
-			{
-				gEtatTrain = TRAIN_DECELRATION ;	
-				Serial.println("B_TRAIN_DECELRATION");
-				gGare = GARE_POSTE;
-				
-				init_sensor_ack();
-				tabCapt[ILS_POST_B].captAck = true;
-			}
-		}
+	if (gTrajet == TRAJET_MB)	{ 
+		detectForDescelerationStop(ILS_POST_B,GARE_POSTE);
 	}
 	
-	if (gTrajet == TRAJET_AM)
-	{
-		if (tabCapt[ILS_VILLENEUVE_AVAL_C].capt)
-		{
-			if (tabCapt[ILS_VILLENEUVE_AVAL_C].captAck != tabCapt[ILS_VILLENEUVE_AVAL_C].capt)
-			{
-				gEtatTrain = TRAIN_DECELRATION ;
-				Serial.println("C_TRAIN_DECELRATION");
-				gGare = GARE_VILLENEUVE;
-			
-				init_sensor_ack();
-				tabCapt[ILS_VILLENEUVE_AVAL_C].captAck = true;
-			}
-		}
+	if (gTrajet == TRAJET_AM)	{ 
+		detectForDescelerationStop(ILS_VILLENEUVE_AVAL_C,GARE_VILLENEUVE);
 	}
-	if (gTrajet == TRAJET_BM)
-	{ 
-		if (tabCapt[ILS_VILLENEUVE_AMONT_D].capt)
-		{
-			if (tabCapt[ILS_VILLENEUVE_AMONT_D].captAck != tabCapt[ILS_VILLENEUVE_AMONT_D].capt)
-			{
-				gEtatTrain = TRAIN_DECELRATION ;
-				Serial.println("D_TRAIN_DECELRATION");
-				gGare = GARE_VILLENEUVE;
-			
-				init_sensor_ack();
-				tabCapt[ILS_VILLENEUVE_AMONT_D].captAck = true;
-			}
-		}
+
+	if (gTrajet == TRAJET_BM)	{ 
+		detectForDescelerationStop(ILS_VILLENEUVE_AMONT_D,GARE_VILLENEUVE);
 	}
 	
 	switch(gEtatTrain){
@@ -527,7 +480,23 @@ void action()
 	}
 }
 
-
+/******************************************************/
+/* detection ILS pour arreter le train                */
+void detectForDescelerationStop(int ils,int gare)
+{
+	if (tabCapt[ils].capt )
+	{
+		if (tabCapt[ils].captAck != tabCapt[ils].capt)
+		{
+			gEtatTrain = TRAIN_DECELRATION ;	
+			Serial.println("B_TRAIN_DECELRATION");
+			gGare = gare;
+			
+			init_sensor_ack();
+			tabCapt[ils].captAck = true;
+		}
+	}
+}
 /******************************************************/
 void enGare()
 {
