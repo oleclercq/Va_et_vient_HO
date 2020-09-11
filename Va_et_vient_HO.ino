@@ -17,18 +17,8 @@ il faut 2 inter sur la gare, (une gare suffit)
 #define PWM_RECHERCHE (200)
 #define PWM_MIN_STOP (50) // PWM à la quelle le train n'avence pas
 #define PWM_MIN (100)	// Vitesse Minimum, jusqu'a attendre la butée (inter)
-#define PWM_MAX (255)	// Vitesse MAX
+#define PWM_MAX (205)	// Vitesse MAX
 #define PWM_STOP (0)
-#define DUREE_EN_GARE	(100)	// 100 * 50ms = 5000ms = 5s;
-
-#define TAUX_ACCELERATION	(2) // On acceler moyennement
-#define TAUX_DESCELERATION	(3) // La deceleration est rapide
-#define TAUX_STOP			(1) // La deceleration pour s'arreter est longue.
-
-
-#define DUREE_VITESSE_MAX (20) // 50 passa ge cadencé ) 50ms  =50x50 = 2.5s
-
-#define NB_PASS_DETECT	(100) // temps avant de détecter la gare d'arrivée
 
 #define NB_TRAJETS	(4) 
 #define NB_GARE		(3)  
@@ -112,7 +102,7 @@ volatile E_ETAT_TRAIN gEtatTrainOld = TRAIN_RALENTIR;
 volatile E_TRAJET gTrajet = RECERCHE_A;
 
 volatile int gnbPassage = 0;
-volatile int gDuree = DUREE_EN_GARE;
+volatile int gDuree = 0;
 volatile int gVitesse = 0;
 
 
@@ -279,6 +269,7 @@ void train_rapide()
 	if (gDuree-- <= 0 ) {
 		gEtatTrain = TRAIN_RALENTIR;
 		Serial.println("TRAIN_RALENTIR");
+		gDuree = 0;
 	}
 }
 
@@ -318,10 +309,12 @@ void train_descelration_fin(int taux)
 		taux = 5;
 	}
 	gVitesse-=taux;
+	/*
 	Serial.print("train_descelration_fin:");
 	Serial.println(taux);
 	Serial.print("gVitesse:");
 	Serial.println(gVitesse);
+	*/
 	
 	if ( gVitesse <= tabTrajet[gTrajet].vitesse_minimun)
 	{
