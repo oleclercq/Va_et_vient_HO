@@ -14,9 +14,9 @@ il faut 2 inter sur la gare, (une gare suffit)
 #define EACH_100MS (20)
 #define EACH_50MS (10)
 
-#define PWM_RECHERCHE (255)
+#define PWM_RECHERCHE (200)
 #define PWM_MIN_STOP (50) // PWM à la quelle le train n'avence pas
-#define PWM_MIN (120)	// Vitesse Minimum, jusqu'a attendre la butée (inter)
+#define PWM_MIN (100)	// Vitesse Minimum, jusqu'a attendre la butée (inter)
 #define PWM_MAX (255)	// Vitesse MAX
 #define PWM_STOP (0)
 #define DUREE_EN_GARE	(100)	// 100 * 50ms = 5000ms = 5s;
@@ -58,7 +58,7 @@ typedef struct 	{	char* name;			// nom du capteur
 					bool  captAck;		// Prise en compte de la position pour effectuer un changement d'état, afin que l'état soit pris qu'une fois en compte et eviter la boucle sans fin si la loco s'arrete sur le capteur. (posssible si vitesse lente)
 				} ST_CAPTEUR;
 
-// ous les temps sont exprimé en multiple de 50ms.
+// Tous les temps sont exprimé en multiple de 50ms.
 typedef struct 	{	char*	 name_Trajet; 		//
  					ST_GARE* gareDepart;
 					ST_GARE* gareArrivee;
@@ -74,17 +74,21 @@ typedef struct 	{	char*	 name_Trajet; 		//
 				
 								
 ST_GARE tabGare[NB_GARE] = {	{"St Dizier",  	5, 5, true },
-								{"Poste",  		7, 7, true },
-								{"Ville-Neuve", 9, 9, true },
+								{"Poste",  		4, 4, true },
+								{"Ville-Neuve", 3, 3, true },
 								} ;
  				
 
 				
-ST_TRAJET tabTrajet[NB_TRAJETS] = {	
-									{"A -> M",  &tabGare[GARE_ST_DIZIER], 	&tabGare[GARE_VILLENEUVE], 	TAUX_ACCELERATION, PWM_MAX, DUREE_VITESSE_MAX, TAUX_DESCELERATION, PWM_MIN, TAUX_STOP, PWM_MIN_STOP, false},
-									{"M -> B",  &tabGare[GARE_VILLENEUVE], 	&tabGare[GARE_POSTE], 		TAUX_ACCELERATION, PWM_MAX, DUREE_VITESSE_MAX, TAUX_DESCELERATION, PWM_MIN, TAUX_STOP, PWM_MIN_STOP, false},
-									{"B -> M",  &tabGare[GARE_POSTE], 		&tabGare[GARE_VILLENEUVE], 	TAUX_ACCELERATION, PWM_MAX, DUREE_VITESSE_MAX, TAUX_DESCELERATION, PWM_MIN, TAUX_STOP, PWM_MIN_STOP, true},
-									{"M -> A",  &tabGare[GARE_VILLENEUVE], 	&tabGare[GARE_ST_DIZIER], 	TAUX_ACCELERATION, PWM_MAX, DUREE_VITESSE_MAX, TAUX_DESCELERATION, PWM_MIN, TAUX_STOP, PWM_MIN_STOP, true}		// pro->offsetK ne doit pas d�passer ni egal � ENTREENUMERIQUE 19
+//                                                                  									acceleration
+//                                                                                                      |            temps_vitesse_max;
+//                                                                                                      |            |  pas_desceleration          
+//                                                                                                      |            |  |    vitesse_d_aproche          
+//                                                                                                      |            |  |    |  pas_pour_stoper          
+ST_TRAJET tabTrajet[NB_TRAJETS] = {	{"A->M ",  &tabGare[GARE_ST_DIZIER], 	&tabGare[GARE_VILLENEUVE], 	5, PWM_MAX, 5, 2,  115, 1,  70, false},
+									{"M->B ",  &tabGare[GARE_VILLENEUVE], 	&tabGare[GARE_POSTE], 		5, PWM_MAX, 20, 2, 120, 5,  100, false},
+									{"B->M ",  &tabGare[GARE_POSTE], 		&tabGare[GARE_VILLENEUVE], 	5, PWM_MAX, 20, 3, 105, 1,  70, true},
+									{"M->A ",  &tabGare[GARE_VILLENEUVE], 	&tabGare[GARE_ST_DIZIER], 	2, PWM_MAX, 5, 5,   90, 1,  70, true}		// pro->offsetK ne doit pas d�passer ni egal � ENTREENUMERIQUE 19
 								} ; 
 
 ST_CAPTEUR tabCapt[NB_CAPTEUR] =  { {	"ILS_ST_DIZIER", 		&tabGare[GARE_ST_DIZIER], 	CPT_A, false, false, false },
@@ -95,8 +99,7 @@ ST_CAPTEUR tabCapt[NB_CAPTEUR] =  { {	"ILS_ST_DIZIER", 		&tabGare[GARE_ST_DIZIER
 								
 static int gGare = 0;
 
-//Servo myservo;  // create servo object to control a servo
-// twelve servo objects can be created on most boards
+//ST_TRAJET* gTrajetEnCours = tabTrajet[3];
 
 int pos = 0;    // variable to store the servo position
 
@@ -110,27 +113,6 @@ volatile E_TRAJET gTrajet = RECERCHE_A;
 
 volatile int gnbPassage = 0;
 volatile int gDuree = DUREE_EN_GARE;
-
-volatile int gInterA_old = -1;
-volatile int gInterB_old = -1;
-volatile int gInterC_old = -1;
-volatile int gInterD_old = -1;
-
-volatile bool gCptA = false;
-volatile bool gCptB = false;
-volatile bool gCptC = false;
-volatile bool gCptD = false;
-
-volatile bool gCptA_old = false;
-volatile bool gCptB_old = false;
-volatile bool gCptC_old = false;
-volatile bool gCptD_old = false;
-
-int gPosA = 0;
-int gPosB = 0;
-int gPosC = 0;
-int gPosD = 0;
-
 volatile int gVitesse = 0;
 
 
@@ -152,41 +134,38 @@ void train_lent();
 void train_descelration_fin(int taux);
 void train_arret(void);
 void calcul_next_trajet();
+void afficheCapteur(int i);
 
 
 /* ************************************************************************ */
 /* ************************************************************************ */
 void setup ()
 {
-  Serial.begin(9600);
+	Serial.begin(9600);
   //Serial.print(__FILE__);
   //Serial.print(" ");
-  Serial.print(__DATE__);
-  Serial.print(" ");
-  Serial.println(__TIME__);
-  delay(1000);
+	Serial.print(__DATE__);
+	Serial.print(" ");
+	Serial.println(__TIME__);
   
   //myservo.attach(4);  // attaches the servo on pin 9 to the servo object
-  pinMode(LED_BUILTIN, OUTPUT);
-  pinMode(DIRECTION_PIN, OUTPUT);
-  pinMode(PWM_PIN, OUTPUT);
+	pinMode(LED_BUILTIN, OUTPUT);
+	pinMode(DIRECTION_PIN, OUTPUT);
+	pinMode(PWM_PIN, OUTPUT);
+  
+	init_sensor();
+	init_sensor_aff();
+	init_sensor_ack();
+	initAllAffGare();
+
+  
   digitalWrite(DIRECTION_PIN, HIGH);
   analogWrite(PWM_PIN, PWM_RECHERCHE);
 	for (int i=0 ; i<NB_CAPTEUR ; i++) {
 		pinMode(tabCapt[i].pin, INPUT_PULLUP); 	
 	}
   
-  pinMode(CPT_B, INPUT_PULLUP);
-  pinMode(CPT_C, INPUT_PULLUP); 
-  pinMode(CPT_D, INPUT_PULLUP); 
-  
-
-
-   
-
-;
 cli();
- 
 // ================================================================================
 // TIMER 1 16BIT
 TCCR1A = 0;
@@ -203,20 +182,14 @@ sei(); // enable interrupts
 /* ************************************************************************ */
 void loop()
 {
-	
-	// on surveilles capteurs en permanance..
+	// Surveillance des capteurs en permanance.. 
 	for (int i=0 ; i<NB_CAPTEUR ; i++) 
 	{
-		//Serial.println(tabCapt[i].name);
 		if (!digitalRead(tabCapt[i].pin)) 	
 		{
 			init_sensor();
 			tabCapt[i].capt = true;
-			if (!tabCapt[i].captPassage)	{
-				Serial.println(tabCapt[i].name);
-				init_sensor_aff();
-				tabCapt[i].captPassage = true ;
-			}
+			afficheCapteur(i);
 		}
 	}
 }
@@ -252,6 +225,18 @@ void init_sensor_ack()
 }
 
 /* ************************************************************************ */
+/* Fonction qui Affiche le capteurs qui vient d'etre traversé
+/* ************************************************************************ */
+void afficheCapteur(int i)
+{
+	if (!tabCapt[i].captPassage)	{
+		Serial.println(tabCapt[i].name);
+		init_sensor_aff();
+		tabCapt[i].captPassage = true ;
+	}
+}
+			
+/* ************************************************************************ */
 /* ON RENTRE DANS SE TIMER TOUTES LES 5ms
 /* ************************************************************************ */
 ISR(TIMER1_COMPA_vect) // 16 bit timer 1 compare 1A match
@@ -270,16 +255,16 @@ ISR(TIMER1_COMPA_vect) // 16 bit timer 1 compare 1A match
 /* ************************************************************************ */
 void train_acceleration(int taux)
 {
+	if (taux ==0 ) { 
+		taux = 1;	// scurité soft, sinon le vitesse n'est jamais diminuée
+	}
 	gVitesse += taux;
 	analogWrite(PWM_PIN, gVitesse);
-	//Serial.print("ACCELERATION:");
-	//Serial.println(gVitesse);
-	if (gVitesse >= PWM_MAX ) {
+	if (gVitesse >= tabTrajet[gTrajet].vitesse_max ) {
 		gEtatTrain = TRAIN_RAPIDE;
-		gDuree = DUREE_VITESSE_MAX;
-		gVitesse = PWM_MAX;
+		gDuree = tabTrajet[gTrajet].temps_vitesse_max ;
+		gVitesse = tabTrajet[gTrajet].vitesse_max;
 		Serial.println("TRAIN_RAPIDE");
-		// Serial.print("**");
 		analogWrite(PWM_PIN, gVitesse);
 	}
 }
@@ -305,11 +290,8 @@ void train_ralentir(int taux)
 {
 	gVitesse -= taux;
 	
-	//Serial.print("RALENTIR:");
-	//Serial.println(gVitesse);
-	
-	if (gVitesse <= PWM_MIN ) {
-		gVitesse = PWM_MIN;
+	if (gVitesse <= tabTrajet[gTrajet].vitesse_d_aproche ) {
+		gVitesse = tabTrajet[gTrajet].vitesse_d_aproche;
 		analogWrite(PWM_PIN, gVitesse);
 		gEtatTrain = TRAIN_LENT;
 		Serial.println("TRAIN_LENT");
@@ -332,9 +314,16 @@ void train_lent()
 /* ************************************************************************ */
 void train_descelration_fin(int taux)
 {
+	if (taux <= 0 ){
+		taux = 5;
+	}
 	gVitesse-=taux;
-	//Serial.print("DECELERATION:");
-	if ( gVitesse <= PWM_MIN_STOP)
+	Serial.print("train_descelration_fin:");
+	Serial.println(taux);
+	Serial.print("gVitesse:");
+	Serial.println(gVitesse);
+	
+	if ( gVitesse <= tabTrajet[gTrajet].vitesse_minimun)
 	{
 		gVitesse = PWM_STOP;
 		analogWrite(PWM_PIN, gVitesse);
@@ -350,35 +339,33 @@ void train_descelration_fin(int taux)
 /* ************************************************************************ */
 // Le train est a l'arret pendant un certain temps
 /* ************************************************************************ */
-void train_arret(int duree)
+void train_arret(ST_GARE* gare)
 {
 	
 	static int sDureeSeconde = 20;
-	static int sCmptSeconde = 0;
+	//static int sCmptSeconde = 0;
 	
-	if (tabGare[gGare].firstAff) {
+	if (gare->firstAff) {
 		Serial.print("GARE:");
-		Serial.println(tabGare[gGare].name_Gare);
+		Serial.println(gare->name_Gare);
 		initAllAffGare();
-		tabGare[gGare].firstAff = false;
+		gare->firstAff = false;
 	}
 	
 	if (sDureeSeconde-- == 0){
 		sDureeSeconde = 20 ;// 20 x 50ms = 1s
 		
 		Serial.print(" ");
-		Serial.print(++sCmptSeconde);
+		Serial.print(gare->temps_gare_cpt);
 		
-		if (tabGare[gGare].temps_gare_cpt-- == 0){
+		if (gare->temps_gare_cpt-- == 0){
 			Serial.println("");
 			Serial.println("Depart");
 			// Remise à l'init pour le prohain arret.
-			tabGare[gGare].temps_gare_cpt = tabGare[gGare].temps_gare; // réinitialisation d la durée écoulée
+			gare->temps_gare_cpt = gare->temps_gare; // réinitialisation d la durée écoulée
 			calcul_next_trajet();
 			
-			Serial.print("gTrajet=");
-			Serial.print(gTrajet);
-			Serial.print(" ");
+			Serial.print("Trajet: ");
 			Serial.print(tabTrajet[gTrajet].name_Trajet);
 			Serial.print(": ");
 			Serial.print(tabTrajet[gTrajet].gareDepart->name_Gare );
@@ -386,19 +373,16 @@ void train_arret(int duree)
 			Serial.println(tabTrajet[gTrajet].gareArrivee->name_Gare );
 
 			Serial.print("Sens: ");
-			Serial.println(tabTrajet[gTrajet].sens);
-			
-			
-			if (tabTrajet[gTrajet].sens)
-			{
+			if (tabTrajet[gTrajet].sens)	{
 				Serial.println("Sens: AVANT");
 			} else {
 				Serial.println("Sens: ARRIERE");
 			}
+			
 			digitalWrite(DIRECTION_PIN, tabTrajet[gTrajet].sens);	
 			gEtatTrain = TRAIN_ACCELERER;
 			Serial.println("TRAIN_ACCELERER");
-			sCmptSeconde = 0;		
+					
 		}
 	}
 }
@@ -465,18 +449,28 @@ void action()
 	}
 	
 	switch(gEtatTrain){
-		case TRAIN_ACCELERER : 		train_acceleration(5);	break;
-		case TRAIN_RAPIDE :       	train_rapide();			break;
-		case TRAIN_RALENTIR :      	train_ralentir(5);		break;
-		case TRAIN_LENT :      		train_lent();			break;
-		case TRAIN_DECELRATION :  	train_descelration_fin(5);	break;
-		case TRAIN_ARRET :        	train_arret(DUREE_EN_GARE); break;
-		
+		case TRAIN_ACCELERER : 		
+				train_acceleration(tabTrajet[gTrajet].pas_acceleration); 	
+				break;
+		case TRAIN_RAPIDE :       	
+				train_rapide();												
+				break;
+		case TRAIN_RALENTIR :      	
+				train_ralentir(tabTrajet[gTrajet].pas_desceleration);	 	
+				break;
+		case TRAIN_LENT :      		
+				train_lent();												
+				break;
+		case TRAIN_DECELRATION :  	
+				train_descelration_fin(tabTrajet[gTrajet].pas_pour_stoper); 
+				break	;
+		case TRAIN_ARRET :        	
+				train_arret(&tabGare[gGare]); 
+				break;
 		default :  
-			Serial.print("RAPIDE:"); 
-			gVitesse = PWM_STOP;		
-			analogWrite(PWM_PIN, gVitesse);
-			break;
+				Serial.print("ERREUR:"); 
+				analogWrite(PWM_PIN, PWM_STOP);
+				break;
 	}
 }
 
@@ -489,9 +483,8 @@ void detectForDescelerationStop(int ils,int gare)
 		if (tabCapt[ils].captAck != tabCapt[ils].capt)
 		{
 			gEtatTrain = TRAIN_DECELRATION ;	
-			Serial.println("B_TRAIN_DECELRATION");
 			gGare = gare;
-			
+			Serial.println("B_TRAIN_DECELRATION");
 			init_sensor_ack();
 			tabCapt[ils].captAck = true;
 		}
