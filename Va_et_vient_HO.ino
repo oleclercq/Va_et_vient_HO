@@ -3,31 +3,30 @@ il faut 2 inter sur la gare, (une gare suffit)
 */
 
 
-
+// CONFIGURATION METERIEL DE L ARDUINO
 #define PWM_PIN (3) // D7
+#define DIRECTION_PIN (12)
 #define CPT_A (5) // D7
 #define CPT_B (6) // D7
 #define CPT_C (A2) // D7
 #define CPT_D (A3) // D7
 
-#define DIRECTION_PIN (12)
-#define EACH_100MS (20)
-#define EACH_50MS (10)
+#define EACH_50MS (10)		// Valeur pour avoir un Timer toutes les 50ms.
 
-#define PWM_RECHERCHE (200)
-#define PWM_MIN_STOP (50) // PWM à la quelle le train n'avence pas
-#define PWM_MIN (100)	// Vitesse Minimum, jusqu'a attendre la butée (inter)
-#define PWM_MAX (205)	// Vitesse MAX
-#define PWM_STOP (0)
+#define PWM_RECHERCHE (200)		// Vitesse du train pour rechercher le 'Capteur A'
+#define PWM_MAX (255)			// Vitesse MAX du train
+#define PWM_STOP (0)			// Vitese ARRRET du train
 
 #define NB_TRAJETS	(4) 
 #define NB_GARE		(3)  
 #define NB_CAPTEUR	(4)  
 
-#define GARE_ST_DIZIER  0
+// Offset pour pointer sur la bonne gare
+#define GARE_ST_DIZIER  0		
 #define GARE_POSTE 		1
 #define GARE_VILLENEUVE 2
 
+// Offset pour pointer sur le bon ils
 #define ILS_ST_DIZIER_A			0
 #define ILS_POST_B 				1
 #define ILS_VILLENEUVE_AVAL_C 	2
@@ -75,10 +74,10 @@ ST_GARE tabGare[NB_GARE] = {	{"St Dizier",  	5, 5, true },
 //                                                                                                      |            |  pas_desceleration          
 //                                                                                                      |            |  |    vitesse_d_aproche          
 //                                                                                                      |            |  |    |  pas_pour_stoper          
-ST_TRAJET tabTrajet[NB_TRAJETS] = {	{"A->M ",  &tabGare[GARE_ST_DIZIER], 	&tabGare[GARE_VILLENEUVE], 	5, PWM_MAX, 5, 2,  115, 1,  70, false},
-									{"M->B ",  &tabGare[GARE_VILLENEUVE], 	&tabGare[GARE_POSTE], 		5, PWM_MAX, 20, 2, 120, 5,  100, false},
-									{"B->M ",  &tabGare[GARE_POSTE], 		&tabGare[GARE_VILLENEUVE], 	5, PWM_MAX, 20, 3, 105, 1,  70, true},
-									{"M->A ",  &tabGare[GARE_VILLENEUVE], 	&tabGare[GARE_ST_DIZIER], 	2, PWM_MAX, 5, 5,   90, 1,  70, true}		// pro->offsetK ne doit pas d�passer ni egal � ENTREENUMERIQUE 19
+ST_TRAJET tabTrajet[NB_TRAJETS] = {	{"A->M ",  &tabGare[GARE_ST_DIZIER], 	&tabGare[GARE_VILLENEUVE], 	5, PWM_MAX, 10, 3,  115, 1,  70, false},
+									{"M->B ",  &tabGare[GARE_VILLENEUVE], 	&tabGare[GARE_POSTE], 		3, PWM_MAX, 1, 3, 120, 2,  100, false},
+									{"B->M ",  &tabGare[GARE_POSTE], 		&tabGare[GARE_VILLENEUVE], 	3, PWM_MAX, 1, 3, 105, 1,  70, true},
+									{"M->A ",  &tabGare[GARE_VILLENEUVE], 	&tabGare[GARE_ST_DIZIER], 	5, PWM_MAX, 10, 3,   90, 1,  70, true}		// pro->offsetK ne doit pas d�passer ni egal � ENTREENUMERIQUE 19
 								} ; 
 
 ST_CAPTEUR tabCapt[NB_CAPTEUR] =  { {	"ILS_ST_DIZIER", 		&tabGare[GARE_ST_DIZIER], 	CPT_A, false, false, false },
@@ -125,6 +124,8 @@ void train_descelration_fin(int taux);
 void train_arret(void);
 void calcul_next_trajet();
 void afficheCapteur(int i);
+void detectForSTOP_immediat(int ils,int gare);
+void detectForDescelerationStop(int ils,int gare);
 
 
 /* ************************************************************************ */
@@ -428,17 +429,21 @@ void action()
 	
 	if (gTrajet == TRAJET_MA)	{ 
 		detectForDescelerationStop(ILS_ST_DIZIER_A,GARE_ST_DIZIER);
+		detectForSTOP_immediat(ILS_VILLENEUVE_AVAL_C,GARE_ST_DIZIER);
 	}
 	if (gTrajet == TRAJET_MB)	{ 
 		detectForDescelerationStop(ILS_POST_B,GARE_POSTE);
+		detectForSTOP_immediat(ILS_VILLENEUVE_AMONT_D,GARE_POSTE);
 	}
 	
 	if (gTrajet == TRAJET_AM)	{ 
 		detectForDescelerationStop(ILS_VILLENEUVE_AVAL_C,GARE_VILLENEUVE);
+		detectForSTOP_immediat(ILS_ST_DIZIER_A, GARE_VILLENEUVE);
 	}
 
 	if (gTrajet == TRAJET_BM)	{ 
 		detectForDescelerationStop(ILS_VILLENEUVE_AMONT_D,GARE_VILLENEUVE);
+		detectForSTOP_immediat(ILS_POST_B,GARE_VILLENEUVE);
 	}
 	
 	switch(gEtatTrain){
@@ -483,6 +488,28 @@ void detectForDescelerationStop(int ils,int gare)
 		}
 	}
 }
+
+/******************************************************/
+/* Détection ARRET Cause dépassement
+/* dans le cas ou l'arret dépasse le capteur..                                                   */
+void detectForSTOP_immediat(int ils,int gare)
+{
+	
+	for (int i=0 ; i>NB_CAPTEUR ; i++) {
+		if (i==ils) {
+			continue; 
+		}
+		if (tabCapt[ils].capt ){
+			gEtatTrain = TRAIN_ARRET ;
+			gGare = gare;
+			Serial.println("TRAIN_STOP_IMMEDIAT");
+			analogWrite(PWM_PIN, 0);
+		}
+	}
+	
+}
+
+
 /******************************************************/
 void enGare()
 {
